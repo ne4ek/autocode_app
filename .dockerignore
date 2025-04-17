@@ -1,0 +1,25 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Environment
+.env
+
+# Git
+.git
+.gitignore
+
+# Docker
+.docker/
+*.dockerfile
+docker-compose.override.yml
+
+# Project specific
+messages.txt
+project_structure_structure.txt
+*.json
+*.html 

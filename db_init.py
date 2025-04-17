@@ -5,7 +5,7 @@ import json
 from tqdm import tqdm
 from qdrant_client import models
 from sentence_transformers import SentenceTransformer
-from consts import EMBEDDING_MODEL, MEDIA_WIKI_API_URL, PROJECT_NAME
+from consts import EMBEDDING_MODEL, MEDIA_WIKI_API_URL, PROJECT_NAME, TEMP_DIR  
 import requests
 from icecream import ic
 from db.db_config import qdrant_database
@@ -23,11 +23,9 @@ class DBInit:
             "methods": []
         }
         
-        # Обрабатываем все заголовки
         current_class = None
         for heading in soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5']):
             if heading.name == 'h5' and 'Класс' in heading.get_text():
-                # Обработка класса
                 class_name = heading.find('span', class_='mw-headline').get_text(strip=True)
                 path_p = heading.find_next('p')
                 
@@ -35,7 +33,6 @@ class DBInit:
                     path_text = path_p.get_text().replace('Путь:', '').strip()
                     file_path, line_number = self.parse_path(path_text)
                     
-                    # Получаем описание класса
                     description = []
                     next_node = path_p.next_sibling
                     while next_node and next_node.name not in ['h1', 'h2', 'h3', 'h4', 'h5']:
@@ -45,7 +42,7 @@ class DBInit:
                                 description.append(text)
                         next_node = next_node.next_sibling
                     
-                    if description or True:  # Сохраняем даже без описания
+                    if description or True:  
                         current_class = {
                             "name": class_name.split()[1],
                             "file_path": file_path,
@@ -55,7 +52,6 @@ class DBInit:
                         result["classes"].append(current_class)
             
             elif heading.name == 'h5' and ('Метод' in heading.get_text() or 'Функция' in heading.get_text()):
-                # Обработка метода
                 method_name = heading.find('span', class_='mw-headline').get_text(strip=True)
                 path_p = heading.find_next('p')
                 
@@ -63,7 +59,6 @@ class DBInit:
                     path_text = path_p.get_text().replace('Путь:', '').replace('path:', '').strip()
                     file_path, line_number = self.parse_path(path_text)
                     
-                    # Получаем описание метода
                     description = []
                     next_node = path_p.next_sibling
                     while next_node and next_node.name not in ['h1', 'h2', 'h3', 'h4', 'h5']:
@@ -73,7 +68,7 @@ class DBInit:
                                 description.append(text)
                         next_node = next_node.next_sibling
                     
-                    if description or True:  # Сохраняем даже без описания
+                    if description or True:  
                         method_data = {
                             "name": method_name.split()[1],
                             "file_path": file_path,
@@ -81,7 +76,6 @@ class DBInit:
                             "description": ' '.join(description) if description else None
                         }
                         
-                        # Добавляем ссылку на класс, если он был найден
                         if current_class:
                             method_data["class"] = current_class["name"]
                         
@@ -93,7 +87,6 @@ class DBInit:
         if not path_text:
             return None, None
         
-        # Ищем шаблоны типа: #services\mail_scheduler_job_service.py:13
         match = re.search(r'(.+?\.py):?(\d+)?$', path_text.replace('\\', '/'))
         if match:
             file_path = match.group(1)
@@ -105,21 +98,17 @@ class DBInit:
     def save_to_json_and_vector_db(self, data, json_filename):
         """Сохраняем данные в JSON файл и векторную БД"""
         try:
-            # Сохранение в JSON
-            with open(json_filename, "w", encoding="utf-8") as f:
+            with open(f"{TEMP_DIR}/{json_filename}", "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
             print(f"Данные успешно сохранены в {json_filename}")
             
-            # Подготовка точек для векторной БД
             points = []
             point_id = 1
             
-            # Обрабатываем классы
             for cls in tqdm(data["classes"], desc="Обработка классов"):
                 if not cls.get("description"):
                     continue
                     
-                # Генерация эмбеддинга
                 text = f"{cls['description']}"
                 embedding = self.model.encode(text).tolist()
                 
@@ -136,7 +125,6 @@ class DBInit:
                 ))
                 point_id += 1
             
-            # Обрабатываем методы
             for method in tqdm(data["methods"], desc="Обработка методов"):
                 if not method.get("description"):
                     continue
@@ -158,7 +146,6 @@ class DBInit:
                 ))
                 point_id += 1
             
-            # Загрузка данных в Qdrant
             if points:
                 self.db.save_data(points)
             else:
@@ -191,36 +178,36 @@ class DBInit:
         def parse_list(items, indent=0):
             result = []
             for item in items:
-                # Найти текст в toctext
                 text = item.select_one('.toctext').text if item.select_one('.toctext') else ''
-                # Найти номер в tocnumber
                 number = item.select_one('.tocnumber').text if item.select_one('.tocnumber') else ''
 
-                # Формировать строку с отступом
                 line = f"{'    ' * indent}{number}\t{text}"
                 result.append(line)
 
-                # Обрабатывать вложенные списки
                 sub_list = item.find('ul')
                 if sub_list:
                     sub_items = sub_list.find_all('li', recursive=False)
                     result.extend(parse_list(sub_items, indent + 1))
             return result
 
-        # Найти элементы верхнего уровня
         top_level_items = soup.find_all('li', class_='toclevel-1 tocsection-1')
-        ic(top_level_items)
         project_structure_lines = parse_list(top_level_items)
 
-        # Объединить результат в строку
         return '\n'.join(project_structure_lines)
-if __name__ == "__main__":
+    
+
+def get_project_structure():
+    db_init = DBInit(qdrant_database)
+    project_html = db_init.get_wiki_html(PROJECT_NAME)
+    structure = db_init.parse_html_to_structure(project_html)
+    with open(f"{TEMP_DIR}/project_structure_structure.txt", "w", encoding="utf-8") as f:
+        f.write(structure)
+
+def to_embeddings():
     db_init = DBInit(qdrant_database)
     html_content = db_init.get_wiki_html(PROJECT_NAME)
     data = db_init.parse_wiki_page(html_content)
     db_init.save_to_json_and_vector_db(data, f"wiki_{PROJECT_NAME.lower()}_embeddings.json")
-    # project_structure = db_init.get_wiki_html(PROJECT_NAME)
-    # structure = db_init.parse_html_to_structure(project_structure)
-    # with open("project_structure_structure.txt", "w", encoding="utf-8") as f:
-    #     f.write(structure)
-    # ic(structure)
+
+if __name__ == "__main__":
+    to_embeddings()

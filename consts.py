@@ -49,3 +49,5 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PROXY = os.getenv("PROXY")
 MEDIA_WIKI_API_URL = os.getenv("MEDIA_WIKI_API_URL")
 PROJECT_NAME = os.getenv("PROJECT_NAME")
+
+TEMP_DIR = "temp"
